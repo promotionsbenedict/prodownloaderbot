@@ -170,3 +170,27 @@ def test_ytdlp_unencrypted_hls_through_test_proxy(tmp_path, monkeypatch):
         finally:
             server.shutdown()
             thread.join()
+
+
+def test_signed_file_serving_and_range(tmp_path, monkeypatch):
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from prodownloader import api
+    from prodownloader.security import signed_path
+
+    name = "a" * 32 + ".mp4"
+    (tmp_path / name).write_bytes(b"0123456789")
+    monkeypatch.setattr(api, "MEDIA", tmp_path)
+    monkeypatch.setattr(api, "PUBLIC_BASE", "https://files.example.com")
+    monkeypatch.setattr(api, "SIGNING_KEY", "test-only")
+    client = TestClient(api.app)
+    expiry = int(time.time()) + 30
+    path = signed_path("test-only", name, expiry)
+    result = client.get(path, headers={"Range": "bytes=2-4"})
+    assert result.status_code == 206 and result.content == b"234"
+    assert result.headers["cache-control"] == "private, no-store"
+    assert client.head(path).status_code == 200
+    assert client.get(signed_path("test-only", name, expiry - 60)).status_code == 404
+    assert client.get(signed_path("invalid", name, expiry)).status_code == 404

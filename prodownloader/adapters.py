@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 import resource
+import ssl
 import subprocess
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ def error_kind(message):
 async def ytdlp(url, quality, folder):
     cmd = [
         sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-cache-dir", "--no-color",
-        "--proxy", PROXY, "--socket-timeout", "12", "--retries", "1", "--fragment-retries", "1",
+        "--proxy", PROXY, "--compat-options", "no-certifi", "--socket-timeout", "12", "--retries", "1", "--fragment-retries", "1",
         "--extractor-retries", "1", "--no-live-from-start", "--restrict-filenames", "--no-mtime",
         "--match-filters", "!is_live", "--max-filesize", str(MAX_BYTES),
         "--playlist-end", str(MAX_ITEMS if quality == "album" else 1),
@@ -216,6 +217,7 @@ async def extract(url, quality, folder):
     if reason == "protected":
         return reason
     async with httpx.AsyncClient(proxy=PROXY, timeout=12, trust_env=False,
+                                 verify=ssl.create_default_context(),
                                  headers={"Accept-Encoding": "identity"}) as client:
         if quality == "album" and len(files) <= 1 and reason != "inaccessible":
             if await save_candidates(client, await gallery_media(url), folder, quality, 100):
