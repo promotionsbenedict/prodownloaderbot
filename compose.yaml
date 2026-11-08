@@ -1,0 +1,189 @@
+name: prodownloader
+
+x-log: &log
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  build:
+    context: .
+    target: app
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: ["/tmp:size=32m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 96
+  logging: *log
+
+x-store: &store
+  DATABASE_URL: postgresql://prodownloader:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/prodownloader
+  REDIS_URL: redis://redis:6379/0
+
+x-links: &links
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+  FILE_SIGNING_KEY: ${FILE_SIGNING_KEY:-}
+
+x-ready: &ready
+  migrate:
+    condition: service_completed_successfully
+  redis:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prodownloader
+      POSTGRES_DB: prodownloader
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: ["database:/var/lib/postgresql/data"]
+    networks: [store]
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "prodownloader", "-d", "prodownloader"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: *log
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    networks: [store]
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: *log
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["python", "-m", "prodownloader.db"]
+    environment:
+      <<: *store
+      ADMIN_IDS: ${ADMIN_IDS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [store]
+    mem_limit: 128m
+
+  bot:
+    <<: *app
+    command: ["python", "-m", "prodownloader.bot"]
+    environment:
+      <<: *store
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN}
+      BOT_USERNAME: prodownloadersbot
+      SUPPORT_CONTACT: ${SUPPORT_CONTACT:-}
+    depends_on: *ready
+    networks: [store, internet]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-m", "prodownloader.check", "bot"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "prodownloader.worker"]
+    environment:
+      <<: [*store, *links]
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN}
+      WORKER_SLOTS: ${WORKER_SLOTS:-2}
+      MAX_MEDIA_MIB: ${MAX_MEDIA_MIB:-200}
+      CACHE_CAP_MIB: ${CACHE_CAP_MIB:-2048}
+    depends_on:
+      <<: *ready
+      extractor:
+        condition: service_healthy
+    volumes: ["media:/media", "spool:/spool"]
+    networks: [store, internet, extract]
+    mem_limit: 384m
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "python", "-m", "prodownloader.check", "worker"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+
+  api:
+    <<: *app
+    command: ["uvicorn", "prodownloader.api:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log", "--limit-concurrency", "40"]
+    environment:
+      <<: [*store, *links]
+    depends_on: *ready
+    volumes: ["media:/media:ro"]
+    networks: [store]
+    mem_limit: 160m
+    healthcheck:
+      test: ["CMD", "python", "-m", "prodownloader.check", "http"]
+      interval: 20s
+      timeout: 5s
+
+  extractor:
+    <<: *app
+    build:
+      context: .
+      target: extractor
+    command: ["uvicorn", "prodownloader.extractor:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log", "--limit-concurrency", "16"]
+    environment:
+      ENABLE_BROWSER: ${ENABLE_BROWSER:-1}
+      EXTRACTOR_SLOTS: ${WORKER_SLOTS:-2}
+      MAX_MEDIA_MIB: ${MAX_MEDIA_MIB:-200}
+    depends_on:
+      egress:
+        condition: service_healthy
+    volumes: ["spool:/spool"]
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    shm_size: 128m
+    networks: [extract]
+    cpus: 2
+    mem_limit: 1400m
+    pids_limit: 192
+    healthcheck:
+      test: ["CMD", "python", "-m", "prodownloader.check", "http"]
+      interval: 10s
+      timeout: 5s
+
+  egress:
+    <<: *app
+    build:
+      context: .
+      target: base
+    command: ["python", "-m", "prodownloader.proxy"]
+    environment:
+      DENY_NETWORKS: ${DENY_NETWORKS:?Set DENY_NETWORKS to all public VPS addresses}
+    networks: [extract, egress]
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "python", "-m", "prodownloader.check", "proxy"]
+      interval: 10s
+      timeout: 5s
+
+networks:
+  store:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  extract:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  internet: {}
+  egress: {}
+
+volumes:
+  database:
+  media:
+  spool:

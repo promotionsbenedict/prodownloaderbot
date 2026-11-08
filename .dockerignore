@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!requirements.txt
+!requirements-extractor.txt
+!prodownloader/
+!prodownloader/*.py
+!migrations/
+!migrations/*.sql
+**/__pycache__

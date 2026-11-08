@@ -1,0 +1,8 @@
+services:
+  api:
+    networks: [store, link_gateway]
+    ports:
+      - "127.0.0.1:${LINK_PORT:-18762}:8080"
+
+networks:
+  link_gateway: {}
