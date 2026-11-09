@@ -252,6 +252,66 @@ async def instagram_embed_photo(client, url):
     return []
 
 
+class TelegramEmbed(HTMLParser):
+    def __init__(self, post):
+        super().__init__()
+        self.post = post.casefold()
+        self.depth = 0
+        self.media = []
+
+    def handle_starttag(self, tag, attributes):
+        attrs = dict(attributes)
+        if tag == "div":
+            if self.depth or (attrs.get("data-post") or "").casefold() == self.post:
+                self.depth += 1
+        if not self.depth:
+            return
+        classes = (attrs.get("class") or "").split()
+        if tag == "video" and "tgme_widget_message_video" in classes:
+            self.media.append(attrs.get("src") or "")
+        if tag == "a" and "tgme_widget_message_photo_wrap" in classes:
+            url = re.search(r"background-image\s*:\s*url\(['\"]?(https://[^'\"()\s]+)",
+                            attrs.get("style") or "")
+            if url:
+                self.media.append(url[1])
+
+    def handle_endtag(self, tag):
+        if tag == "div" and self.depth:
+            self.depth -= 1
+
+
+async def telegram_embed_media(client, url):
+    parsed = urlsplit(url)
+    if parsed.hostname not in {"t.me", "telegram.me", "www.t.me", "www.telegram.me"}:
+        return []
+    post = re.fullmatch(r"/(?:s/)?([A-Za-z][A-Za-z0-9_]{3,31}/[1-9][0-9]{0,15})/?", parsed.path)
+    if not post or post[1].split("/", 1)[0].casefold() in {"c", "joinchat", "addstickers"}:
+        return []
+    parser = TelegramEmbed(post[1])
+    try:
+        async with client.stream("GET", f"https://t.me/{post[1]}?embed=1", follow_redirects=False) as response:
+            if response.status_code != 200:
+                return []
+            remaining = 512 * 1024
+            async for chunk in response.aiter_text(8192):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    return []
+                parser.feed(chunk)
+    except (httpx.RequestError, ValueError):
+        return []
+    media = []
+    for item in parser.media:
+        try:
+            candidate = public_url(item)
+            host = urlsplit(candidate).hostname
+            if candidate.startswith("https://") and host.endswith((".cdn-telegram.org", ".telegram-cdn.org", ".telesco.pe", ".telegram.org")):
+                media.append(candidate)
+        except ValueError:
+            continue
+    return media[:MAX_ITEMS]
+
+
 async def facebook_video_url(client, url):
     parsed = urlsplit(url)
     if parsed.hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}:
@@ -282,6 +342,8 @@ async def extract(url, quality, folder):
     async with httpx.AsyncClient(proxy=PROXY, timeout=12, trust_env=False,
                                  verify=ssl.create_default_context(),
                                  headers={"Accept-Encoding": "identity"}) as client:
+        if await save_candidates(client, await telegram_embed_media(client, url), folder, quality, 300):
+            return ""
         url = await facebook_video_url(client, url)
         files, reason = await ytdlp(url, quality, folder)
         direct_video = Path(urlsplit(url).path).suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}

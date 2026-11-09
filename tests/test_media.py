@@ -244,3 +244,27 @@ def test_instagram_embed_uses_public_post_image():
             assert await adapters.instagram_embed_photo(client, url) == [photo]
 
     asyncio.run(check())
+
+
+def test_telegram_embed_uses_only_requested_post_attachments():
+    photo = "https://cdn4.cdn-telegram.org/file/photo.jpg"
+    video = "https://cdn4.telesco.pe/file/video.mp4"
+
+    def serve(request):
+        assert str(request.url) == "https://t.me/officialproreact/3?embed=1"
+        return httpx.Response(200, text=f"""
+            <div data-post="officialproreact/2">
+              <video class="tgme_widget_message_video" src="{video}?other=1"></video>
+            </div>
+            <div data-post="officialproreact/3">
+              <a class="tgme_widget_message_photo_wrap" style="background-image:url('{photo}')"></a>
+              <div><video class="tgme_widget_message_video" src="{video}"></video></div>
+            </div>
+        """)
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(serve)) as client:
+            assert await adapters.telegram_embed_media(client, "https://t.me/s/officialproreact/3") == [photo, video]
+            assert await adapters.telegram_embed_media(client, "https://t.me/c/1234/3") == []
+
+    asyncio.run(check())
