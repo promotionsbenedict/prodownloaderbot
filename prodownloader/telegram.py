@@ -20,10 +20,10 @@ ERRORS = {
 }
 
 
-NEW_DOWNLOAD = "New download"
+NEW_DOWNLOAD = "⬇️ New download"
 HISTORY = "History"
 ACTIVE_DOWNLOADS = "Active downloads"
-SETTINGS = "Settings"
+SETTINGS = "⚙️ Settings"
 HELP = "Help"
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[

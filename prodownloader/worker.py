@@ -166,7 +166,7 @@ async def run_job(pool, redis, client, bot, job):
         return
 
     if await db.finish(pool, job, "done", files=json.dumps(names)):
-        await update(bot, job, f"Done. Delivered {len(names)} file{'s' if len(names) != 1 else ''}.")
+        await update(bot, job, f"✅ Delivered {len(names)} file{'s' if len(names) != 1 else ''}.")
         event("download_result", job=str(job["id"]), state="done", files=len(names))
 
 

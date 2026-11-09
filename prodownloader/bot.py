@@ -70,7 +70,7 @@ async def start(message, pool):
                          reply_markup=MAIN_KEYBOARD)
 
 
-@router.message(F.text == NEW_DOWNLOAD)
+@router.message(F.text.in_({NEW_DOWNLOAD, "New download"}))
 async def new_download(message):
     await message.answer("Paste your next public media link here.", reply_markup=MAIN_KEYBOARD)
 
@@ -92,7 +92,7 @@ async def support(message, pool):
 
 
 @router.message(Command("settings"))
-@router.message(F.text == SETTINGS)
+@router.message(F.text.in_({SETTINGS, "Settings"}))
 async def settings(message, pool):
     await db.register(pool, message.from_user.id)
     quality = await pool.fetchval("SELECT quality FROM users WHERE id=$1", message.from_user.id)
