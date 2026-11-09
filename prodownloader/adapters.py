@@ -7,7 +7,7 @@ import ssl
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -212,9 +212,12 @@ async def extract(url, quality, folder):
     url = public_url(url)
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_BYTES * 2, MAX_BYTES * 2))
     files, reason = await ytdlp(url, quality, folder)
-    if reason in {"protected", "inaccessible", "too_large"} and not files:
-        return reason
+    direct_video = Path(urlsplit(url).path).suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}
+    # A generic extractor can reject a format even when the original media URL is public.
+    retry_direct = direct_video and quality in ("480", "720", "1080")
     if reason == "protected":
+        return reason
+    if not files and (reason == "too_large" or (reason == "inaccessible" and not retry_direct)):
         return reason
     async with httpx.AsyncClient(proxy=PROXY, timeout=12, trust_env=False,
                                  verify=ssl.create_default_context(),
@@ -233,8 +236,10 @@ async def extract(url, quality, folder):
         if path:
             print(path, flush=True)
             return ""
-        if direct_reason in {"too_large", "inaccessible"}:
+        if direct_reason in {"too_large", "inaccessible", "quality"}:
             return direct_reason
+        if reason == "inaccessible":
+            return reason
         if reason == "quality":
             return reason
         if quality != "album" and await save_candidates(client, await gallery_media(url), folder, quality, 100):

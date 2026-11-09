@@ -194,3 +194,17 @@ def test_signed_file_serving_and_range(tmp_path, monkeypatch):
     assert client.head(path).status_code == 200
     assert client.get(signed_path("test-only", name, expiry - 60)).status_code == 404
     assert client.get(signed_path("invalid", name, expiry)).status_code == 404
+
+
+def test_capped_direct_video_recovers_from_extractor_access_error(tmp_path, capsys):
+    url = "https://example.com/sample.mp4"
+    target = tmp_path / "scaled-1.mp4"
+    with patch.object(adapters.resource, "setrlimit"), patch.object(
+            adapters, "ytdlp", AsyncMock(return_value=([], "inaccessible"))), patch.object(
+            adapters, "direct", AsyncMock(return_value=(target, ""))) as direct:
+        assert asyncio.run(adapters.extract(url, "480", tmp_path)) == ""
+        assert direct.await_args.args[1:] == (url, tmp_path, 1, adapters.MAX_BYTES, "480")
+        assert capsys.readouterr().out.strip() == str(target)
+        direct.reset_mock()
+        assert asyncio.run(adapters.extract("https://example.com/post", "480", tmp_path)) == "inaccessible"
+        direct.assert_not_awaited()
