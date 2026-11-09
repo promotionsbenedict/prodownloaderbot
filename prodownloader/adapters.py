@@ -6,6 +6,7 @@ import resource
 import ssl
 import subprocess
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
 
@@ -50,6 +51,8 @@ def error_kind(message):
     if re.search(r"\b(429|50[0234])\b", message) or any(word in message for word in (
             "timed out", "timeout", "connection reset", "temporary failure", "network is unreachable")):
         return "temporary"
+    if "there is no video in this post" in message:
+        return "no_video"
     if "requested format is not available" in message:
         return "quality"
     if "max-filesize" in message or "file too large" in message:
@@ -208,6 +211,47 @@ async def save_candidates(client, urls, folder, quality, start_index):
     return count
 
 
+class InstagramEmbed(HTMLParser):
+    photo = None
+
+    def handle_starttag(self, tag, attributes):
+        if tag != "img" or self.photo:
+            return
+        attrs = dict(attributes)
+        src = attrs.get("src") or ""
+        host = urlsplit(src).hostname or ""
+        if ("EmbeddedMediaImage" in (attrs.get("class") or "").split()
+                and src.startswith("https://")
+                and host.endswith((".cdninstagram.com", ".fbcdn.net"))):
+            self.photo = src
+
+
+async def instagram_embed_photo(client, url):
+    parsed = urlsplit(url)
+    if parsed.hostname not in {"instagram.com", "www.instagram.com"}:
+        return []
+    post = re.fullmatch(r"/p/([A-Za-z0-9_-]+)/?", parsed.path)
+    if not post:
+        return []
+    parser = InstagramEmbed()
+    embed = f"https://www.instagram.com/p/{post[1]}/embed/"
+    try:
+        async with client.stream("GET", embed, follow_redirects=False) as response:
+            if response.status_code != 200:
+                return []
+            remaining = 512 * 1024
+            async for chunk in response.aiter_text(8192):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    break
+                parser.feed(chunk)
+                if parser.photo:
+                    return [parser.photo]
+    except (httpx.RequestError, ValueError):
+        return []
+    return []
+
+
 async def facebook_video_url(client, url):
     parsed = urlsplit(url)
     if parsed.hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}:
@@ -269,6 +313,9 @@ async def extract(url, quality, folder):
             return reason
         if quality != "album" and await save_candidates(client, await gallery_media(url), folder, quality, 100):
             return ""
+        if quality == "original" and reason == "no_video":
+            if await save_candidates(client, await instagram_embed_photo(client, url), folder, quality, 150):
+                return ""
         if os.getenv("ENABLE_BROWSER", "1") == "1":
             from playwright.async_api import Error as BrowserError
             try:
@@ -277,7 +324,9 @@ async def extract(url, quality, folder):
                 urls = []
             if await save_candidates(client, urls, folder, quality, 200):
                 return ""
-    return "temporary" if "temporary" in (reason, direct_reason) else reason
+    if "temporary" in (reason, direct_reason):
+        return "temporary"
+    return "unsupported" if reason == "no_video" else reason
 
 
 async def main():

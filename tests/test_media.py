@@ -225,3 +225,22 @@ def test_facebook_share_video_normalization(location, normalized):
             assert await adapters.facebook_video_url(client, url) == (normalized or url)
 
     asyncio.run(check())
+
+
+def test_instagram_embed_uses_public_post_image():
+    url = "https://www.instagram.com/p/example/?tracking=1"
+    photo = "https://scontent.example.cdninstagram.com/post.jpg"
+
+    def serve(request):
+        assert str(request.url) == "https://www.instagram.com/p/example/embed/"
+        return httpx.Response(200, text=f"""
+            <img class="EmbeddedMediaImage" src="https://example.com/not-instagram.jpg">
+            <img class="ProfileImage" src="https://scontent.example.cdninstagram.com/profile.jpg">
+            <img class="EmbeddedMediaImage" src="{photo}">
+        """)
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(serve)) as client:
+            assert await adapters.instagram_embed_photo(client, url) == [photo]
+
+    asyncio.run(check())
