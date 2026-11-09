@@ -2,5 +2,5 @@ fastapi==0.162.2
 httpx==0.28.1
 playwright==1.64.1
 uvicorn==0.54.0
-yt-dlp[default]==2026.10.26
+yt-dlp[default,curl-cffi]==2026.10.26
 gallery-dl==1.32.19
