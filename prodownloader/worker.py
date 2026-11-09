@@ -130,20 +130,43 @@ async def send(bot, redis, user, name, index):
             await redis.set(key, response.document.file_id, ex=86400)
 
 
+SMALLER_QUALITIES = {
+    "original": ("720", "480"),
+    "1080": ("720", "480"),
+    "720": ("480",),
+}
+
+
 async def run_job(pool, redis, client, bot, job):
     await update(bot, job, "Downloading your media…", cancel=True)
+    fallback_quality = None
     try:
         names = await previous_files(pool, job)
         reason = ""
         if not names:
             names, reason = await download(client, job)
+        smaller = SMALLER_QUALITIES.get(job["quality"], ())
+        if reason == "too_large" and smaller:
+            await update(bot, job, "File too large. Trying a smaller video…", cancel=True)
+            for quality in smaller:
+                names, retry_reason = await download(client, {**job, "quality": quality})
+                if names:
+                    fallback_quality = quality
+                    reason = ""
+                    break
+                if retry_reason not in {"too_large", "quality", "unsupported"}:
+                    reason = retry_reason
+                    break
     except (httpx.HTTPError, OSError, ValueError, KeyError):
         names, reason = [], "temporary"
     if reason:
         state = "queued" if reason in {"temporary", "busy"} and job["attempts"] < 3 else "failed"
         if await db.finish(pool, job, state, reason):
-            await update(bot, job, "Source busy. Retrying shortly…" if state == "queued"
-                         else ERRORS.get(reason, ERRORS["temporary"]), cancel=state == "queued")
+            message = ERRORS.get(reason, ERRORS["temporary"])
+            if reason == "too_large" and not PUBLIC_BASE and job["quality"] != "album" and MAX_BYTES >= TELEGRAM_LIMIT:
+                message = f"This file is too large to send in Telegram ({TELEGRAM_LIMIT // 1_000_000} MB limit)."
+            await update(bot, job, "Source busy. Retrying shortly…" if state == "queued" else message,
+                         cancel=state == "queued")
             event("download_result", job=str(job["id"]), state=state, reason=reason)
         return
 
@@ -165,8 +188,13 @@ async def run_job(pool, redis, client, bot, job):
         event("delivery_error", job=str(job["id"]), error=type(error).__name__)
         return
 
-    if await db.finish(pool, job, "done", files=json.dumps(names)):
-        await update(bot, job, f"✅ Delivered {len(names)} file{'s' if len(names) != 1 else ''}.")
+    # Avoid caching the smaller file under the originally requested quality.
+    cache_files = None if fallback_quality else json.dumps(names)
+    if await db.finish(pool, job, "done", files=cache_files):
+        if fallback_quality:
+            await update(bot, job, f"✅ Delivered a smaller version (up to {fallback_quality}p).")
+        else:
+            await update(bot, job, f"✅ Delivered {len(names)} file{'s' if len(names) != 1 else ''}.")
         event("download_result", job=str(job["id"]), state="done", files=len(names))
 
 
