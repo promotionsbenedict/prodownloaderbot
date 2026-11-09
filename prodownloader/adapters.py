@@ -7,7 +7,7 @@ import ssl
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
@@ -206,22 +206,45 @@ async def save_candidates(client, urls, folder, quality, start_index):
     return count
 
 
+async def facebook_video_url(client, url):
+    parsed = urlsplit(url)
+    if parsed.hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}:
+        return url
+    if not re.fullmatch(r"/share/v/[A-Za-z0-9]+/?", parsed.path):
+        return url
+    try:
+        async with client.stream("GET", url, follow_redirects=False) as response:
+            if not response.is_redirect or "location" not in response.headers:
+                return url
+            destination = urlsplit(public_url(urljoin(url, response.headers["location"])))
+    except (httpx.RequestError, ValueError):
+        return url
+    if destination.hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}:
+        return url
+    if destination.path == "/story.php":
+        ids = parse_qs(destination.query).get("story_fbid", [])
+        if len(ids) == 1 and re.fullmatch(r"[0-9]{1,24}", ids[0]):
+            return f"https://www.facebook.com/watch/?v={ids[0]}"
+    return url
+
+
 async def extract(url, quality, folder):
     if quality not in QUALITIES:
         return "unsupported"
     url = public_url(url)
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_BYTES * 2, MAX_BYTES * 2))
-    files, reason = await ytdlp(url, quality, folder)
-    direct_video = Path(urlsplit(url).path).suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}
-    # A generic extractor can reject a format even when the original media URL is public.
-    retry_direct = direct_video and quality in ("480", "720", "1080")
-    if reason == "protected":
-        return reason
-    if not files and (reason == "too_large" or (reason == "inaccessible" and not retry_direct)):
-        return reason
     async with httpx.AsyncClient(proxy=PROXY, timeout=12, trust_env=False,
                                  verify=ssl.create_default_context(),
                                  headers={"Accept-Encoding": "identity"}) as client:
+        url = await facebook_video_url(client, url)
+        files, reason = await ytdlp(url, quality, folder)
+        direct_video = Path(urlsplit(url).path).suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}
+        # A generic extractor can reject a format even when the original media URL is public.
+        retry_direct = direct_video and quality in ("480", "720", "1080")
+        if reason == "protected":
+            return reason
+        if not files and (reason == "too_large" or (reason == "inaccessible" and not retry_direct)):
+            return reason
         if quality == "album" and len(files) <= 1 and reason != "inaccessible":
             if await save_candidates(client, await gallery_media(url), folder, quality, 100):
                 return ""

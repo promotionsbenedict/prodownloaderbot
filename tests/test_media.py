@@ -208,3 +208,20 @@ def test_capped_direct_video_recovers_from_extractor_access_error(tmp_path, caps
         direct.reset_mock()
         assert asyncio.run(adapters.extract("https://example.com/post", "480", tmp_path)) == "inaccessible"
         direct.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("location", "normalized"), [
+    ("/story.php?story_fbid=1036787588820442&id=100055189422916",
+     "https://www.facebook.com/watch/?v=1036787588820442"),
+    ("https://example.com/story.php?story_fbid=1036787588820442", None),
+    ("/login/?next=story.php", None),
+])
+def test_facebook_share_video_normalization(location, normalized):
+    url = "https://www.facebook.com/share/v/1DejwDxrT5/"
+
+    async def check():
+        transport = httpx.MockTransport(lambda _: httpx.Response(302, headers={"location": location}))
+        async with httpx.AsyncClient(transport=transport) as client:
+            assert await adapters.facebook_video_url(client, url) == (normalized or url)
+
+    asyncio.run(check())
