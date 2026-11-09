@@ -5,6 +5,7 @@ RUN groupadd --gid 10001 downloader \
     && useradd --uid 10001 --gid 10001 --no-create-home downloader \
     && install -o 10001 -g 10001 -m 0700 -d /media /spool
 COPY prodownloader /app/prodownloader
+RUN chmod -R u=rwX,go=rX /app/prodownloader
 USER 10001:10001
 
 FROM base AS app
@@ -12,6 +13,7 @@ USER root
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY migrations migrations
+RUN chmod -R u=rwX,go=rX /app/migrations
 USER 10001:10001
 
 FROM node:22-bookworm-slim AS node

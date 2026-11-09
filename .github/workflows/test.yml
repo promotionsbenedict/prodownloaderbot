@@ -37,9 +37,11 @@ jobs:
       - run: python -m pip install -r requirements.txt -r requirements-extractor.txt pytest==9.2.0
       - run: python -m pytest -q
       - run: docker compose config --quiet && docker compose -f compose.yaml -f compose.links.yaml config --quiet
+      - run: chmod -R go-rwx prodownloader migrations
       - run: docker compose up -d --build --wait --wait-timeout 150 api extractor
       - run: |
           docker compose exec -T extractor python - <<'PYTEST'
+          import prodownloader.adapters
           from playwright.sync_api import sync_playwright
           with sync_playwright() as playwright:
               with playwright.chromium.launch() as browser:
