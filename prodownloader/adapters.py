@@ -18,8 +18,10 @@ PROXY = os.getenv("EXTRACTION_PROXY", "http://egress:8888")
 FORMAT = {
     "original": "bv*+ba/b",
     "mp3": "ba/b",
-    **{height: f"bv*[height<={height}]+ba/b[height<={height}]"
-       for height in ("1080", "720", "480")},
+    **{resolution: (f"bv*[height<={resolution}]+ba/b[height<={resolution}]/"
+                    f"bv*[width<={resolution}][height>{resolution}]+ba/"
+                    f"b[width<={resolution}][height>{resolution}]")
+       for resolution in ("1080", "720", "480")},
 }
 DEMUXERS = {"mp4": "mov", "mov": "mov", "m4a": "mov", "mkv": "matroska",
             "webm": "matroska", "ogg": "ogg", "wav": "wav", "flac": "flac"}
