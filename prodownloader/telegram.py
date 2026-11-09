@@ -3,7 +3,7 @@ import os
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from .config import event
 
@@ -18,6 +18,23 @@ ERRORS = {
     "delivery_interrupted": "Delivery was interrupted. Check the chat for any files already sent.",
     "worker_lost": "The download was interrupted. Please try again.",
 }
+
+
+NEW_DOWNLOAD = "New download"
+HISTORY = "History"
+ACTIVE_DOWNLOADS = "Active downloads"
+SETTINGS = "Settings"
+HELP = "Help"
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text=NEW_DOWNLOAD)],
+        [KeyboardButton(text=HISTORY), KeyboardButton(text=ACTIVE_DOWNLOADS)],
+        [KeyboardButton(text=SETTINGS), KeyboardButton(text=HELP)],
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+    input_field_placeholder="Paste a public media link",
+)
 
 
 def make_bot():

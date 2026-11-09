@@ -20,7 +20,9 @@ from redis.exceptions import RedisError
 from . import db
 from .config import event, setup_logging
 from .security import QUALITIES, public_url
-from .telegram import cancel_keyboard, make_bot
+from .telegram import (
+    ACTIVE_DOWNLOADS, HELP, HISTORY, MAIN_KEYBOARD, NEW_DOWNLOAD, SETTINGS, cancel_keyboard, make_bot,
+)
 
 router = Router()
 router.message.filter(F.chat.type == "private", F.from_user)
@@ -64,10 +66,17 @@ def keyboard(prefix, default):
 @router.message(CommandStart())
 async def start(message, pool):
     await db.register(pool, message.from_user.id)
-    await message.answer("Welcome to Pro Downloader. Paste one public media link and pick a quality or format.")
+    await message.answer("Welcome to Pro Downloader. Paste one public media link and pick a quality or format.",
+                         reply_markup=MAIN_KEYBOARD)
+
+
+@router.message(F.text == NEW_DOWNLOAD)
+async def new_download(message):
+    await message.answer("Paste your next public media link here.", reply_markup=MAIN_KEYBOARD)
 
 
 @router.message(Command("help"))
+@router.message(F.text == HELP)
 async def help_command(message):
     await message.answer("Send one public media link. Choose Original / best, a video resolution, MP3, "
                          "or All media / playlist for supported multi-item posts. Use /status to cancel "
@@ -83,6 +92,7 @@ async def support(message, pool):
 
 
 @router.message(Command("settings"))
+@router.message(F.text == SETTINGS)
 async def settings(message, pool):
     await db.register(pool, message.from_user.id)
     quality = await pool.fetchval("SELECT quality FROM users WHERE id=$1", message.from_user.id)
@@ -103,6 +113,7 @@ async def set_default(callback, pool):
 
 
 @router.message(Command("history"))
+@router.message(F.text == HISTORY)
 async def history(message, pool):
     rows = await pool.fetch(
         """SELECT platform,state,created_at FROM jobs WHERE user_id=$1
@@ -112,6 +123,7 @@ async def history(message, pool):
 
 
 @router.message(Command("status"))
+@router.message(F.text == ACTIVE_DOWNLOADS)
 async def status(message, pool):
     rows = await pool.fetch(
         """SELECT id,platform,state FROM jobs WHERE user_id=$1 AND state IN ('queued','running','delivering')
@@ -200,7 +212,7 @@ async def select_quality(callback, pool, redis):
 async def link(message, pool, redis):
     links = re.findall(r"https?://[^\s<>]+", message.text, re.I)
     if len(links) != 1:
-        await message.answer("Send one public media link.")
+        await message.answer("Send one public media link.", reply_markup=MAIN_KEYBOARD)
         return
     try:
         url = public_url(links[0])
