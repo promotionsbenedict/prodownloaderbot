@@ -29,7 +29,7 @@ from .config import (
     setup_logging,
 )
 from .security import EXTENSIONS, FILENAME, signed_path
-from .telegram import ERRORS, MAIN_KEYBOARD, make_bot, update
+from .telegram import ERRORS, make_bot, update
 
 
 async def previous_files(pool, job):
@@ -167,11 +167,6 @@ async def run_job(pool, redis, client, bot, job):
 
     if await db.finish(pool, job, "done", files=json.dumps(names)):
         await update(bot, job, f"Done. Delivered {len(names)} file{'s' if len(names) != 1 else ''}.")
-        try:
-            await bot.send_message(job["user_id"], "What would you like to do next?",
-                                   reply_markup=MAIN_KEYBOARD)
-        except TelegramAPIError as error:
-            event("next_action_prompt_failed", job=str(job["id"]), error=type(error).__name__)
         event("download_result", job=str(job["id"]), state="done", files=len(names))
 
 
