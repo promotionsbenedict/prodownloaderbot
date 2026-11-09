@@ -15,7 +15,7 @@ from .security import EXTENSIONS, QUALITIES, public_url
 
 SLOTS = asyncio.Semaphore(int(os.getenv("EXTRACTOR_SLOTS", "2")))
 ACTIVE = set()
-REASONS = {"protected", "inaccessible", "too_large", "temporary", "unsupported", "quality"}
+REASONS = {"protected", "inaccessible", "too_large", "temporary", "unsupported", "quality", "youtube_sign_in"}
 
 
 async def reaper():

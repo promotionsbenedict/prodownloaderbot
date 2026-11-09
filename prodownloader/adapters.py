@@ -45,6 +45,8 @@ def extension_matches(path, ext):
 def error_kind(message):
     if any(word in message for word in ("drm", "copyright protection", "widevine", "fairplay")):
         return "protected"
+    if "[youtube]" in message and "sign in to confirm" in message and "not a bot" in message:
+        return "youtube_sign_in"
     if any(word in message for word in ("login", "log in", "sign in", "private", "401", "403",
                                         "age-restricted", "forbidden", "captcha", "geo restricted")):
         return "inaccessible"
@@ -349,7 +351,7 @@ async def extract(url, quality, folder):
         direct_video = Path(urlsplit(url).path).suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}
         # A generic extractor can reject a format even when the original media URL is public.
         retry_direct = direct_video and quality in ("480", "720", "1080")
-        if reason == "protected":
+        if reason in {"protected", "youtube_sign_in"}:
             return reason
         if not files and (reason == "too_large" or (reason == "inaccessible" and not retry_direct)):
             return reason

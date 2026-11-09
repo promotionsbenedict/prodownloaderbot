@@ -9,6 +9,7 @@ from .config import event
 
 ERRORS = {
     "protected": "This media is protected and cannot be downloaded.",
+    "youtube_sign_in": "YouTube is asking this server to sign in before downloading this video.",
     "inaccessible": "This media is unavailable without access to the original post.",
     "temporary": "The source is temporarily unavailable. Try again later.",
     "unsupported": "No downloadable public media was found at this link.",
